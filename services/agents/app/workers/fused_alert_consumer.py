@@ -57,6 +57,7 @@ from app.graph.runner import default_budget, run_escalation
 from app.investigator import ledger as ledger_module
 from app.investigator.bundle_prompt import prefetch_context_bundle_dict
 from app.llm.factory import llm_override
+from app.memory import precedent
 from app.memory.outcomes import AI, suppression_refusal
 from app.models.state import AgentStatus, InvestigationState
 from app.playbook import alert_trigger
@@ -112,10 +113,16 @@ _METRICS = {
     "outcome_suppressed": 0,
     "ungrounded_demoted": 0,
     "llm_failed_held_for_review": 0,
+<<<<<<< HEAD
+    # Phase 4.4(a). Counted so a deployment can tell "nothing resembled this
+    # alert" from "precedent never ran".
+    "precedent_cited": 0,
+=======
     # Phase 4.5. Counted rather than inferred from the ledger, so a
     # deployment that turned the pre-fetch on can tell "no vendor answered"
     # from "the pre-fetch never ran".
     "vendor_reads_executed": 0,
+>>>>>>> origin/depth2/lane-f-analyst
     "persist_retries": 0,
     "dead_lettered": 0,
     "approvals_raised": 0,
@@ -767,7 +774,11 @@ class FusedAlertTriageWorker:
                     # here.
                     await self._attach_recent_dispositions(state)
                     await self._attach_identity_context(state)
+<<<<<<< HEAD
+                    await self._attach_precedent(state, fingerprint)
+=======
                     await self._attach_vendor_evidence(state)
+>>>>>>> origin/depth2/lane-f-analyst
             # Bind a CostTracker so every LLM call on this path records its
             # token/cost (safe_ainvoke -> record_llm_call) — previously the
             # highest-volume LLM spend was recorded as $0 and invisible.
@@ -907,6 +918,7 @@ class FusedAlertTriageWorker:
                     # stops a disposition derived from attacker-reachable
                     # text from auto-closing the next one.
                     injection_suspected=bool(getattr(state, "injection_suspected", False)),
+                    alert=state.raw_alert,
                 )
                 _METRICS["outcome_written"] += 1
 
@@ -1186,6 +1198,35 @@ class FusedAlertTriageWorker:
         state.recent_dispositions = found.as_state()
         _METRICS["recent_dispositions_read"] += len(found.decisions)
 
+<<<<<<< HEAD
+    async def _attach_precedent(self, state: InvestigationState, signature: str) -> None:
+        """Decisions this organisation made on alerts *like* this one (4.4a).
+
+        Distinct from `_maybe_suppress_from_memory`, which has already run
+        and matched on identity. This is similarity, it produces **context
+        only**, and it closes nothing: a similar alert is not the same
+        alert, and closing one on a neighbour's verdict is the false
+        negative `canonical_evidence` calls "much worse" than a missed
+        repeat.
+
+        The exact-match prior is excluded, or it would appear as precedent
+        for itself.
+        """
+        try:
+            found = await precedent.find_similar(
+                str(state.tenant_id),
+                state.raw_alert,
+                exclude_signature=signature,
+            )
+        except Exception as exc:  # noqa: BLE001 — precedent is advisory
+            logger.debug("auto_triage_worker.precedent_failed", error=str(exc)[:200])
+            return
+        if not found:
+            return
+        state.precedent = [p.as_dict() for p in found]
+        state.confidence_basis.extend(precedent.basis(found))
+        _METRICS["precedent_cited"] += len(found)
+=======
     async def _attach_vendor_evidence(self, state: InvestigationState) -> None:
         """Ask the vendors that raised this alert what they know (Phase 4.5).
 
@@ -1209,6 +1250,7 @@ class FusedAlertTriageWorker:
             _METRICS["vendor_reads_executed"] += len(state.vendor_evidence.executed_capabilities)
         except Exception as exc:  # noqa: BLE001 — context is additive
             logger.warning("auto_triage_worker.vendor_evidence_failed", error=str(exc)[:200])
+>>>>>>> origin/depth2/lane-f-analyst
 
     async def _attach_identity_context(self, state: InvestigationState) -> None:
         """Record who is behind the accounts this alert names, if anyone knows.
@@ -1294,6 +1336,7 @@ class FusedAlertTriageWorker:
                 confidence=confidence,
                 author=author,
                 alert_id=(state.raw_alert or {}).get("id"),
+                alert=state.raw_alert,
             )
         with contextlib.suppress(Exception):
             await writer.record_suppression(
