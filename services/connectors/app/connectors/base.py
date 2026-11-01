@@ -81,6 +81,18 @@ class Capability(str, Enum):
     #: into ``asset_vulnerabilities`` (docs/cve-patch-policy.md): scanner
     #: findings are inventory rows with patch windows, not console alerts.
     PULL_VULNERABILITIES = "pull_vulnerabilities"
+    #: Pull *workforce context* -- employment status, start and last-day
+    #: dates, manager, department and worker type -- rather than events.
+    #: Connectors declaring it must expose ``fetch_workforce()``, which the
+    #: scheduler materialises into ``workforce_members`` (depth plan wave 2
+    #: item 1.3). An HR system reports slowly-changing state, not security
+    #: events, and pushing it through ingest would make "is this person
+    #: leaving" a lake search rather than a lookup.
+    PULL_WORKFORCE = "pull_workforce"
+    #: Pull *managed device state* -- owner, compliance, OS version,
+    #: encryption and agent health. Connectors declaring it must expose
+    #: ``fetch_devices()``, materialised into ``workforce_devices``.
+    PULL_DEVICE_INVENTORY = "pull_device_inventory"
 
     # QUERY — ad-hoc search across the source's index.
     QUERY_LOGS = "query_logs"
@@ -92,6 +104,16 @@ class Capability(str, Enum):
     PIVOT_IP = "pivot_ip"
     PIVOT_HASH = "pivot_hash"
     PIVOT_DOMAIN = "pivot_domain"
+
+    #: Depth plan wave 2, 8.2. Network evidence for a vendor-originated
+    #: alert: the flow and protocol records involving one address, and the
+    #: devices an NDR appliance has discovered at it. Declared here because
+    #: this enum and `KNOWN_CAPABILITIES` in services/actions are mirrors of
+    #: one another and a gate compares them in both directions; no connector
+    #: in this service implements them, because the executor lives where the
+    #: vendor credentials and the capability contract do.
+    LOOKUP_NETWORK_FLOWS = "lookup_network_flows"
+    LOOKUP_NETWORK_DEVICE = "lookup_network_device"
 
     # ENRICH — return contextual reputation / metadata for a single entity.
     ENRICH_USER = "enrich_user"

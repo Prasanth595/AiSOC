@@ -9,6 +9,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ExtraHop RevealX 360 network detections, with the vendor's own risk
+  bands intact** (depth plan wave 2, item 8.2). Detections arrive as alerts
+  on a schedule, and two read-only verbs -- `lookup_network_flows` and
+  `lookup_network_device` -- let an investigation pull the flows and the
+  device record around one address.
+
+  What was absent: no NDR connector beyond Zeek/Suricata and Darktrace. The
+  reproduction had two halves, because this is an item that can be wired
+  wrong in two places. The connector half was an import error. The ingest
+  half was quieter and worse: with no `connectorProfiles` entry the
+  normalizer logs `Using generic profile for unknown connector`, files the
+  event at `class_uid: 4001`, and `should_promote()` then drops every
+  mid-band detection. The connector would have polled successfully,
+  reported healthy and produced an empty queue.
+
+  **This connector never emits `critical`, deliberately.** ExtraHop
+  publishes three risk bands and no fourth; from the vendor's own
+  documentation the score is "color coded by severity as red (80-99),
+  orange (31-79), or yellow (1-30)". Promoting the top band would assert a
+  tier the vendor does not publish, which is the same defect as collapsing
+  a vendor's real `critical` into `high`, in the other direction. Nothing
+  is lost: these are OCSF Security Findings at category 2, which promote
+  regardless of severity.
+
+  A read that could not happen is not an empty result. RevealX 360 record
+  search needs a cloud recordstore with Premium Investigation, and a
+  deployment without one gets a refusal naming the reason rather than a
+  list of no flows -- because an investigation reporting an address was
+  quiet when nothing was ever searched has stated a fact it did not
+  establish.
+
+  The gate that keeps it fixed is the ingest profile test, proven against
+  the pre-fix tree: removing the profile fails all three assertions and the
+  normalizer logs the generic-profile warning again.
+
+  **Not built:** Corelight. Its documentation answers 401, so no honest
+  mock payload can be written. Recorded as blocked with exactly what it
+  needs rather than substituting the Zeek-log connector that already
+  exists, which reads different data for a different purpose.
+
+### Fixed
+
+- **The enrichment service's rate limit is applied** (depth plan wave 2,
+  item 8.3, first half). `RATE_LIMIT_RPS` and `RATE_LIMIT_BURST` were parsed
+  into config, assigned to struct fields, and read by nothing else in the
+  service. That is worse than a missing setting, because an operator reading
+  the environment believed the service was bounded.
+
+  A token bucket per tenant, applied on `/enrich` and on `/enrich/bulk`,
+  with one token per *item* on the bulk path so a hundred-indicator call
+  cannot be the way around the limit. An unset rate means unlimited rather
+  than blocked: a malformed environment variable parses to 0, and reading
+  that as "allow nothing" would turn enrichment off across a deployment
+  with no message anywhere. A request with no tenant shares one bucket
+  rather than bypassing the limit.
+
+  Six tests, every grant with a partner refusal, because a limiter asserted
+  only on the allowed path is indistinguishable from no limiter, which is
+  exactly what shipped.
+
+  The enrichment cache key is now tenant-scoped as well. Two tenants
+  legitimately enable different providers, so a shared key would serve
+  tenant A's verdict from a provider tenant B switched off straight to
+  tenant B.
+
+### Added
+
+- **HR and managed-device context, kept current by a connector on a
+  schedule** (depth plan wave 2, item 1.3). Three new connectors --
+  BambooHR, Rippling and Microsoft Intune -- feed employment status, start
+  and last-day dates, manager, department, worker type, device owner,
+  compliance state, OS version, encryption and threat-defence agent state
+  into triage.
+
+  What was absent, measured: 88 registered connectors and not one of them
+  HR or MDM, and `import_context` with exactly one production caller, a
+  manual POST route. A tenant's HR context was only ever as current as the
+  last file somebody uploaded.
+
+  The wiring is the half that makes it real. The connector scheduler calls
+  the workforce sync on every poll, in its own `try`, modelled on the
+  vulnerability sync beside it: a context sync that fails must not cost the
+  poll its events.
+
+  Migration 131 puts the context in Postgres so it exists on CORE. The graph
+  import stays and is richer, but Neo4j is a `full`-profile service, so on
+  the deployment `make up` produces the HR dimension did not exist at all
+  and every triage input reading it was silently dead.
+
+  Tenure, departing-within-30-days, contractor status and device compliance
+  are derived and cited in the confidence basis as well as rendered in the
+  prompt, because a fact in one and not the other is either invisible to a
+  reviewer or absent from the model. Every absence keeps its direction: a
+  missing start date is not a new joiner, a missing end date is not
+  "staying", an unmapped employment type is not an employee, and a device
+  the MDM never evaluated is not a compliant one.
+
+  Data minimisation is in the request and in the schema rather than in a
+  filter. All three vendors return compensation, date of birth and home
+  address; none is requested, and migration 131 has no column that could
+  hold one. The BambooHR directory endpoint, which would have been the
+  obvious single read, is deliberately not used for the facts: its own
+  reference says it never includes employment status or history in any
+  configuration and excludes former employees entirely, which removes every
+  field this item needs and the whole population it exists to see.
+
+  **Not built:** Workday and Kandji, recorded as blocked with exactly what
+  each needs rather than built against an invented payload shape.
+
+### Added
+
 - **Anonymizer and hosting classes stamped on public addresses at ingest**
   (depth plan wave 2, item 1.6). An event's source address now carries
   `tor_exit` or `hosting_provider` where a pinned local dataset has a record
